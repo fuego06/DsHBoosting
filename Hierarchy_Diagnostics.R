@@ -469,3 +469,409 @@ get_final_embeddings <- function(model, inputs, layer_name = NULL) {
   }
   as.matrix(Z_final) # N x d
 }
+
+
+get_stage_embeddings <- function(model, inputs_all, t) {
+  layer_Zt <- get_layer(model, sprintf("DeepBlock_t%d", t))
+  sub_Zt <- keras_model(inputs = model$inputs,
+                        outputs = layer_Zt$output)
+  Z_pred <- predict(sub_Zt, inputs_all)
+  Z_t <- Z_pred[1,,] # shape N x d_t
+  Z_t
+}
+
+## Optional: infer T from layer names (or just pass stages = 1:4 etc.)
+infer_num_stages <- function(model) {
+  lname <- vapply(model$layers, function(l) l$name, "")
+  max(as.integer(gsub("DeepBlock_t", "", grep("^DeepBlock_t[0-9]+$", lname, value = TRUE))))
+}
+
+
+############################################################
+## FIXED: stage-wise hierarchy diagnostics
+## - no longer assumes diag_t$cor_summary exists
+## - computes correlations directly
+############################################################
+
+run_stage_hierarchy_diagnostics <- function(
+    model,
+    inputs_all,
+    g_vec,
+    D_all,
+    C_all,
+    y,
+    A_raw,
+    stages = NULL,
+    k_knn = 32L,
+    do_tsne = FALSE
+){
+  if (is.null(stages)) {
+    stages <- seq_len(infer_num_stages(model))
+  }
+  
+  N <- length(y)
+  stopifnot(length(g_vec) == N,
+            nrow(D_all) == N,
+            nrow(C_all) == N)
+  
+  diag_list <- list()
+  summary_tbl <- list()
+  
+  depth_vec <- as.numeric(D_all[,1])
+  cent_vec <- as.numeric(C_all[,1])
+  
+  for (t in stages) {
+    cat(sprintf("\n========== Stage t = %d ==========\n", t))
+    
+    Z_t <- get_stage_embeddings(model, inputs_all, t)
+    
+    diag_t <- hierarchy_diagnostics(
+      Z_final = Z_t,
+      g_vec = g_vec,
+      D_all = D_all,
+      y = y,
+      C_all = C_all,
+      A = A_raw,
+      pred = NULL,
+      k_knn = as.integer(k_knn),
+      use_tsne = do_tsne
+    )
+    
+    diag_list[[paste0("t", t)]] <- diag_t
+    
+    ## --- correlations we care about ---
+    ## depth vs gate and centrality vs gate don't depend on stage
+    cor_depth_gate <- suppressWarnings(cor(depth_vec, g_vec))
+    cor_central_gate <- suppressWarnings(cor(cent_vec, g_vec))
+    
+    ## gate vs KNN-purity DOES depend on Z_t
+    if (!is.null(diag_t$knn_purity)) {
+      cor_gate_knn <- suppressWarnings(cor(g_vec, diag_t$knn_purity))
+    } else {
+      cor_gate_knn <- NA_real_
+    }
+    
+    ## edge-level smoothness (if available)
+    if (!is.null(diag_t$edge_stats)) {
+      mean_edge_gate_diff <- diag_t$edge_stats$mean_gate_diff
+      mean_edge_gate_diff_same <- diag_t$edge_stats$mean_gate_diff_same_label
+      mean_edge_gate_diff_diff <- diag_t$edge_stats$mean_gate_diff_diff_label
+    } else {
+      mean_edge_gate_diff <- NA_real_
+      mean_edge_gate_diff_same <- NA_real_
+      mean_edge_gate_diff_diff <- NA_real_
+    }
+    
+    summary_tbl[[length(summary_tbl) + 1]] <- data.frame(
+      stage = t,
+      cor_depth_gate = cor_depth_gate,
+      cor_gate_knn = cor_gate_knn,
+      cor_central_gate = cor_central_gate,
+      mean_edge_gate_diff = mean_edge_gate_diff,
+      mean_edge_gate_diff_same = mean_edge_gate_diff_same,
+      mean_edge_gate_diff_diff = mean_edge_gate_diff_diff
+    )
+  }
+  
+  summary_tbl <- dplyr::bind_rows(summary_tbl)
+  list(
+    diag_per_stage = diag_list,
+    summary_per_stage = summary_tbl
+  )
+}
+
+
+plot_dendrogram_from_Z_and_gate <- function(
+    Z,
+    g_vec,
+    y = NULL,
+    n_subsample = 800L,
+    main = "Dendrogram from Z, leaf colour = gate g_i"
+){
+  set.seed(1)
+  N <- nrow(Z)
+  idx <- if (N > n_subsample) sample.int(N, n_subsample) else seq_len(N)
+  
+  Z_sub <- Z[idx, , drop = FALSE]
+  g_sub <- g_vec[idx]
+  
+  # cosine distance
+  row_l2 <- function(M) { M / pmax(sqrt(rowSums(M^2)), 1e-8) }
+  Zn <- row_l2(Z_sub)
+  cos_sim <- tcrossprod(Zn)
+  D_cos <- as.dist(1 - cos_sim)
+  
+  hc <- hclust(D_cos, method = "average")
+  
+  # ----- SAFE BINNING OF g_sub -----
+  qprobs <- c(0.1, 0.3, 0.5, 0.7, 0.9)
+  qcuts <- as.numeric(quantile(g_sub, probs = qprobs, na.rm = TRUE))
+  
+  brks <- unique(c(-Inf, qcuts, Inf))
+  n_int <- length(brks) - 1L
+  
+  base_labels <- paste0("q", qprobs)
+  lab <- base_labels[seq_len(n_int)]
+  
+  g_disc <- cut(
+    g_sub,
+    breaks = brks,
+    labels = lab,
+    include.lowest = TRUE
+  )
+  
+  # order leaves according to hclust
+  ord <- hc$order
+  g_ord <- g_disc[ord]
+  
+  # small colour palette for the bins
+  pal <- c(
+    "q0.1" = "black",
+    "q0.3" = "purple",
+    "q0.5" = "red",
+    "q0.7" = "orange",
+    "q0.9" = "yellow"
+  )
+  pal <- pal[names(pal) %in% levels(g_ord)]
+  
+  # plot
+  op <- par(no.readonly = TRUE)
+  on.exit(par(op))
+  
+  par(mar = c(6, 4, 4, 2) + 0.1, xpd = TRUE)
+  plot(hc, labels = FALSE, main = main, xlab = "subsampled nodes")
+  
+  # coloured points under leaves
+  y0 <- par("usr")[3]
+  points(
+    x = seq_along(ord),
+    y = rep(y0 - 0.02 * diff(par("usr")[3:4]), length(ord)),
+    pch = 16,
+    col = pal[as.character(g_ord)],
+    cex = 0.7
+  )
+  
+  legend("topright",
+         legend = names(pal),
+         col = pal,
+         pch = 16,
+         title = "gate g_i")
+}
+############################################################
+## 3) Heatmap of priors ordered by Z^{(t)} clustering
+############################################################
+
+plot_priors_heatmap_for_Z <- function(
+    Z,
+    D_all,
+    C_all,
+    g_vec,
+    y = NULL,
+    main = "Nodes clustered by Z (priors + gate heatmap)"
+){
+  # Z: N x d
+  N <- nrow(Z)
+  stopifnot(
+    length(D_all) == N || nrow(D_all) == N,
+    length(C_all) == N || nrow(C_all) == N,
+    length(g_vec) == N
+  )
+  
+  # ---- 1) vectorize priors ----
+  depth <- if (is.matrix(D_all)) as.numeric(D_all[, 1]) else as.numeric(D_all)
+  centrality <- if (is.matrix(C_all)) as.numeric(C_all[, 1]) else as.numeric(C_all)
+  gate <- as.numeric(g_vec)
+  
+  # ---- 2) cluster nodes by embeddings Z (cosine distance) ----
+  row_l2 <- function(M) M / pmax(sqrt(rowSums(M^2)), 1e-8)
+  Zn <- row_l2(Z)
+  cosSim <- tcrossprod(Zn)
+  D_cos <- as.dist(1 - cosSim)
+  
+  hc <- hclust(D_cos, method = "average")
+  ord <- hc$order # permutation of nodes
+  
+  # ---- 3) Build priors matrix H: rows = priors, cols = nodes ----
+  H <- rbind(
+    depth = depth,
+    centrality = centrality,
+    gate = gate
+  ) # 3 x N
+  
+  # Optionally z-score rows
+  H_scaled <- H
+  for (i in seq_len(nrow(H_scaled))) {
+    mu <- mean(H_scaled[i, ], na.rm = TRUE)
+    sdv <- stats::sd(H_scaled[i, ], na.rm = TRUE)
+    if (sdv > 0) {
+      H_scaled[i, ] <- (H_scaled[i, ] - mu) / sdv
+    } else {
+      H_scaled[i, ] <- H_scaled[i, ] - mu
+    }
+  }
+  
+  # Reorder columns by embedding-based cluster order
+  H_ord <- H_scaled[, ord, drop = FALSE] # 3 x N
+  
+  # ---- 4) Heatmap: x = nodes, y = {depth, centrality, gate} ----
+  op <- par(no.readonly = TRUE)
+  on.exit(par(op))
+  
+  par(mar = c(5, 4, 4, 2) + 0.1)
+  
+  # Now z must be N x 3 ??? take transpose
+  z_mat <- t(H_ord) # N x 3
+  
+  image(
+    x = seq_len(ncol(H_ord)), # N nodes (clustered by Z)
+    y = seq_len(nrow(H_ord)), # 1:depth, 2:centrality, 3:gate
+    z = z_mat,
+    col = gray.colors(200),
+    axes = FALSE,
+    xlab = "nodes (clustered by Z)",
+    ylab = ""
+  )
+  title(main)
+  
+  axis(1, at = pretty(seq_len(N)))
+  axis(
+    2,
+    at = seq_len(nrow(H_ord)),
+    labels = rownames(H_ord),
+    las = 1
+  )
+  
+  # ---- 5) Optional: class bar below heatmap ----
+  if (!is.null(y)) {
+    y_fac <- as.factor(y[ord])
+    y_int <- as.integer(y_fac)
+    pal <- rainbow(length(levels(y_fac)))
+    
+    par(new = TRUE, mar = c(5, 4, 0, 2) + 0.1)
+    image(
+      x = seq_len(N),
+      y = 1,
+      z = matrix(y_int, nrow = 1),
+      col = pal,
+      axes = FALSE,
+      xlab = "",
+      ylab = ""
+    )
+    axis(4, at = 1, labels = "class", las = 1)
+    legend("topright", legend = levels(y_fac), fill = pal, cex = 0.6)
+  }
+}
+
+############################################################
+## 4) MST tree from Z^{(t)} with colouring
+############################################################
+
+library(igraph)
+library(ggraph)
+
+plot_mst_tree_from_embeddings <- function(
+    Z,
+    color_vec,
+    colour_name = "gate",
+    main = "MST tree from Z"
+){
+  N <- nrow(Z)
+  Zn <- Z / pmax(sqrt(rowSums(Z^2)), 1e-8)
+  S <- Zn %*% t(Zn)
+  D <- 1 - S
+  diag(D) <- 0
+  
+  g_full <- graph_from_adjacency_matrix(D, mode = "undirected", weighted = TRUE)
+  mst_g <- mst(g_full, weights = E(g_full)$weight)
+  
+  V(mst_g)$color_val <- color_vec
+  
+  ggraph(mst_g, layout = "tree") +
+    geom_edge_link(alpha = 0.4, colour = "grey70") +
+    geom_node_point(aes(colour = color_val), size = 2) +
+    scale_colour_viridis_c(option = "magma") +
+    ggtitle(main) +
+    theme_void() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold")
+    )
+}
+############################################################
+## FIXED: driver that calls the diagnostics + plots
+############################################################
+
+analyze_all_stages <- function(
+    model,
+    inputs_all,
+    g_vec,
+    D_all,
+    C_all,
+    y,
+    A_raw,
+    stages = NULL,
+    k_knn = 32L
+){
+  if (is.null(stages)) stages <- seq_len(infer_num_stages(model))
+  
+  res <- run_stage_hierarchy_diagnostics(
+    model = model,
+    inputs_all = inputs_all,
+    g_vec = g_vec,
+    D_all = D_all,
+    C_all = C_all,
+    y = y,
+    A_raw = A_raw,
+    stages = stages,
+    k_knn = k_knn,
+    do_tsne = FALSE
+  )
+  
+  cat("\n=== Stage-wise summary (numeric) ===\n")
+  print(res$summary_per_stage)
+  
+  ## ---- visualisations per stage ----
+  for (t in stages) {
+    cat(sprintf("\n\n########## VISUALS FOR STAGE t = %d ##########\n", t))
+    Z_t <- get_stage_embeddings(model, inputs_all, t)
+    
+    ## 1) dendrogram + gate colours
+    plot_dendrogram_from_Z_and_gate(
+      Z = Z_t,
+      g_vec = g_vec,
+      y = y,
+      main = sprintf("Dendrogram from Z_t (t = %d), leaf colour = gate g_i", t)
+    )
+    
+    ## 2) priors heatmap ordered by Z_t clustering
+    plot_priors_heatmap_for_Z(
+      Z = Z_t,
+      D_all = D_all,
+      C_all = C_all,
+      g_vec = g_vec,
+      y = y,
+      main = sprintf("Nodes clustered by Z_t (t = %d)", t)
+    )
+    
+    ## 3) MST coloured by gate
+    print(
+      plot_mst_tree_from_embeddings(
+        Z = Z_t,
+        color_vec = g_vec,
+        colour_name = "gate",
+        main = sprintf("MST from Z_t (t = %d), node colour = gate g_i", t)
+      )
+    )
+    
+    ## 4) MST coloured by depth
+    print(
+      plot_mst_tree_from_embeddings(
+        Z = Z_t,
+        color_vec = as.numeric(D_all[,1]),
+        colour_name = "depth",
+        main = sprintf("MST from Z_t (t = %d), node colour = depth D_i", t)
+      )
+    )
+  }
+  
+  invisible(res)
+}
