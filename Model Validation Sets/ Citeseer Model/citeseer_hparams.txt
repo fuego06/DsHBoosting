@@ -1,0 +1,15 @@
+dataset=citeseer
+T = 3L, init_shrink = c(0.90, 0.85, 0.80),
+ k_top = 10L, tau_cos = 0.12, init_alpha_blend = 0.20,
+ block_feature_dim = 64L, prev_emb_dim = 16L, gate_dim_target = 96L,
+ block_depth = 6L, block_dropout = 0.10, lr = 3e-3, l2 = 1e-3,
+ use_focal = TRUE, focal_gamma = 2.0, focal_alpha = alpha_vec,
+ use_cluster_gate = TRUE, gate_beta = 12, gate_normalize_inputs = TRUE,
+rounds = 4L,
+epochs_per_round = 60L,
+ hard_thresh = 0.55,
+ up_factor = 3.0,
+ verbose = 1L, es_patience = 25L,
+ rlrop = TRUE, rlrop_factor = 0.5,
+ rlrop_patience = 6L,
+ rlrop_min_lr = 1e-5
