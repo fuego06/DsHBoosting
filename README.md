@@ -5,9 +5,8 @@ The repository contains everything about the HBoost(2e2boosting) model
 #### The Hierarchy in the Proposed Model
 <img width="875" height="540" alt="heatmap_good3" src="https://github.com/user-attachments/assets/041c1977-3b5b-4301-9d36-0cc244364d50" />
 <img width="875" height="540" alt="heatmap_good" src="https://github.com/user-attachments/assets/fbfeb46c-f41d-43b2-903c-43dbb84408e9" />
-<img ![boosting_arc](https://github.com/user-attachments/assets/9df135c1-348e-4ae8-816f-43d310d0721e)
-width="875" height="540" alt="heatmap_good2" src="https://github.com/user-attachments/assets/1225f5ab-47e0-49c0-b0ff-4b6a7bd4e69e" />
-![boosting_arc](https://github.com/user-attachments/assets/b0934904-629c-4737-b555-b77f6bb891a1)
+<img width="1536" height="557" alt="structure" src="https://github.com/user-attachments/assets/997e8e39-6917-47a1-ab08-ffd154b23707" />
+![boosting_arc png](https://github.com/user-attachments/assets/d95373c5-e555-4cc6-8444-29ad7cae246f)
 
 
 
