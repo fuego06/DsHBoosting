@@ -7,6 +7,8 @@ The repository contains everything about the HBoost(2e2boosting) model
 <img width="875" height="540" alt="heatmap_good" src="https://github.com/user-attachments/assets/fbfeb46c-f41d-43b2-903c-43dbb84408e9" />
 <img ![boosting_arc](https://github.com/user-attachments/assets/9df135c1-348e-4ae8-816f-43d310d0721e)
 width="875" height="540" alt="heatmap_good2" src="https://github.com/user-attachments/assets/1225f5ab-47e0-49c0-b0ff-4b6a7bd4e69e" />
+![boosting_arc](https://github.com/user-attachments/assets/b0934904-629c-4737-b555-b77f6bb891a1)
+
 
 
 \documentclass[journal]{IEEEtran}
