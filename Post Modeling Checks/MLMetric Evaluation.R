@@ -787,4 +787,91 @@ plot_stage_head_losses <- function(hist_df) {
     theme_minimal(base_size = 12)
 }
 
+get_node_embeddings <- function(
+ model,
+ X,
+ A_raw,
+ C_all,
+ D_all,
+ M,
+ return_stage = NULL # NULL = final, or integer t
+) {
+ # X: N x F (preprocessed features)
+ # A_raw: N x N adjacency
+ # C_all, D_all: graph priors
+ # M: mask
+ # return_stage: which boosting stage to extract
+
+ # ---- 1) initialize ----
+ Z <- X
+ F <- matrix(0, nrow(X), model$n_classes)
+
+ # ---- 2) precompute base adjacency ----
+ A_norm <- AdjRowNorm(A_raw)
+
+ # ---- 3) hierarchy gate (fixed across stages) ----
+ g_vec <- model$hierarchy_gate(X, C_all, D_all)
+
+ # ---- 4) boosting stages ----
+ for (t in seq_len(model$T)) {
+
+ # cosine KNN from current embeddings
+ S_knn <- CosineTopKNN(Z, k = model$k_knn)
+ S_knn <- S_knn * M
+ S_knn <- AdjRowNorm(S_knn)
+
+ # blend adjacency
+ alpha_t <- model$alpha[t]
+ B_t <- alpha_t * A_norm + (1 - alpha_t) * S_knn
+
+ # hierarchy-aware propagation
+ Z_prop <- model$attn_blocks[[t]](Z, B_t, C_all, D_all)
+
+ # depth-decayed activation
+ Z_prop <- DendroELU(Z_prop, D_all, lambda = model$lambda[t])
+
+ # gated residual refinement
+ Z <- model$deep_blocks[[t]](Z_prop, g_vec)
+
+ # cluster-based channel gating
+ Z <- model$cluster_gate[[t]](Z)
+
+ # stage logits
+ Delta_t <- model$class_heads[[t]](Z)
+ F <- F + model$shrink[t] * Delta_t
+
+ # ---- optional early return ----
+ if (!is.null(return_stage) && t == return_stage) {
+ return(Z)
+ }
+ }
+
+ return(Z)
+}
+get_embeddings_all_rounds <- function(
+ model,
+ X,
+ A_raw,
+ C_all,
+ D_all,
+ M
+) {
+ Z_list <- vector("list", model$T)
+
+ for (t in seq_len(model$T)) {
+ Z_list[[t]] <- get_node_embeddings(
+ model = model,
+ X = X,
+ A_raw = A_raw,
+ C_all = C_all,
+ D_all = D_all,
+ M = M,
+ return_stage = t
+ )
+ }
+
+ names(Z_list) <- paste0("round_", seq_len(model$T))
+ Z_list
+}
+
 
