@@ -857,4 +857,93 @@ analyze_all_stages <- function(
   }
   
   invisible(res)
+
 }
+
+
+library(ggplot2)
+library(dplyr)
+
+# ---------------------------
+# Helper: make a common 2D projection for all rounds
+# ---------------------------
+project_embeddings_common_pca <- function(Z_list, n_components = 2L, center = TRUE, scale. = FALSE) {
+stopifnot(is.list(Z_list), length(Z_list) >= 1)
+N <- nrow(Z_list[[1]])
+d <- ncol(Z_list[[1]])
+stopifnot(all(vapply(Z_list, nrow, 1L) == N))
+stopifnot(all(vapply(Z_list, ncol, 1L) == d))
+
+# stack all rounds so PCA basis is shared
+Z_all <- do.call(rbind, Z_list) # (N*R) x d
+pca <- prcomp(Z_all, center = center, scale. = scale., rank. = max(n_components, 2L))
+
+# project each round
+proj_list <- lapply(seq_along(Z_list), function(r) {
+Zr <- Z_list[[r]]
+X2 <- predict(pca, Zr)[, 1:n_components, drop = FALSE]
+colnames(X2) <- paste0("PC", seq_len(n_components))
+X2
+})
+
+list(pca = pca, proj_list = proj_list)
+}
+
+# ---------------------------
+# Main: plot all rounds in facets + final round alone
+# ---------------------------
+plot_embeddings_over_rounds <- function(
+Z_list, y,
+sample_n = 5000, # downsample points for speed/clarity
+alpha = 0.6,
+point_size = 0.7,
+title_all = "Embedding evolution across boosting rounds (common PCA)",
+title_final = "Final-round embeddings (common PCA)"
+){
+N <- nrow(Z_list[[1]])
+stopifnot(length(y) == N)
+
+# Common PCA projection across all rounds
+tmp <- project_embeddings_common_pca(Z_list, n_components = 2L)
+P_list <- tmp$proj_list
+
+# optional downsample (same nodes across all rounds for fair comparison)
+set.seed(1)
+idx <- if (N > sample_n) sort(sample.int(N, sample_n)) else seq_len(N)
+
+y_fac <- factor(y[idx])
+
+df_all <- bind_rows(lapply(seq_along(P_list), function(r) {
+P <- P_list[[r]][idx, , drop = FALSE]
+data.frame(
+x = P[,1],
+y = P[,2],
+class = y_fac,
+round = factor(r - 1L) # show round starting at 0
+)
+}))
+
+p_all <- ggplot(df_all, aes(x, y, color = class)) +
+geom_point(alpha = alpha, size = point_size) +
+facet_wrap(~ round, nrow = 2) +
+theme_minimal(base_size = 12) +
+labs(title = title_all, x = "PC1 (shared)", y = "PC2 (shared)", color = "Class") +
+theme(legend.position = "right")
+
+# Final round only
+r_last <- length(P_list)
+df_last <- data.frame(
+x = P_list[[r_last]][idx, 1],
+y = P_list[[r_last]][idx, 2],
+class = y_fac
+)
+
+p_last <- ggplot(df_last, aes(x, y, color = class)) +
+geom_point(alpha = alpha, size = point_size) +
+theme_minimal(base_size = 12) +
+labs(title = title_final, x = "PC1 (shared)", y = "PC2 (shared)", color = "Class") +
+theme(legend.position = "right")
+
+list(all_rounds_plot = p_all, final_plot = p_last)
+}
+
