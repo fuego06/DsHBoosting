@@ -50,7 +50,7 @@ According to the Table, the learned gate g_i shows a stable negative Spearman co
 
 
 The table reports the training protocol and the main hyperparameters of DsHBoosting for each dataset.
-Here, T denotes the number of internal STS stages, i.e., the number of sequential hierarchy-aware refinement blocks that iteratively correct logits through residual updates. R denotes the number of external boosting rounds in the STS outer loop, where training node weights are updated to emphasize hard or misclassified nodes. The parameter k denotes the number of neighbors in the cosine Top-$k$ KNN graph, which determines the size of the feature-based neighborhood. The temperature parameter tau controls the sharpness of cosine similarity weights when constructing the learned KNN adjacency.
+Here, T denotes the number of internal STS stages, i.e., the number of sequential hierarchy-aware refinement blocks that iteratively correct logits through residual updates. R denotes the number of external boosting rounds in the STS outer loop, where training node weights are updated to emphasize hard or misclassified nodes. The parameter k denotes the number of neighbors in the cosine Top-k KNN graph, which determines the size of the feature-based neighborhood. The temperature parameter tau controls the sharpness of cosine similarity weights when constructing the learned KNN adjacency.
 
 
 
