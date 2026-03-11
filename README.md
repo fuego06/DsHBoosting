@@ -1,4 +1,4 @@
-# DsHBoosting:
+# DsHBoosting: Deep Supervised End-to-End Boosted Structurally Hierarchical Graph Neural Networks
 
 
 The repository contains everything about the HBoost(2e2boosting) model
