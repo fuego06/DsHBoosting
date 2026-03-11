@@ -56,6 +56,7 @@ Here, T denotes the number of internal STS stages, i.e., the number of sequentia
 
 
 <img width="550" height="335" alt="image" src="https://github.com/user-attachments/assets/dd277038-6fbc-4611-8c7a-c60b97dc0b2c" />
+<img width="1140" height="516" alt="image" src="https://github.com/user-attachments/assets/1775be16-ba1a-42e9-8c9a-4ecf90f2a9eb" />
 
 
 
