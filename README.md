@@ -1,4 +1,4 @@
-# HBoost-2e2boosting-
+# DsHBoosting:
 
 
 The repository contains everything about the HBoost(2e2boosting) model
